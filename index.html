@@ -1,0 +1,193 @@
+<!doctype html>
+<!--
+  Resume Analyzer — portfolio demo.
+  Single static file, no backend, no dependencies. Paste resume text in,
+  get heuristic feedback out. Rule-based on purpose: general resume
+  feedback (formatting/clarity/impact) doesn't need an LLM call to be
+  useful, and this works with zero deploy/API-key setup.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Resume Analyzer — Portfolio Demo</title>
+<style>
+:root{--ink:#1a1a1a;--muted:#6b7280;--line:#e5e7eb;--blue:#2451c4;--green:#1a8f5e;--red:#c4342a;--bg:#f6f7f9}
+*{box-sizing:border-box}
+body{margin:0;font-family:"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--ink);line-height:1.5}
+.badge{display:inline-block;background:#e8edfb;color:var(--blue);border-radius:999px;padding:4px 12px;font-size:.75rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase}
+header{max-width:900px;margin:0 auto;padding:48px 20px 24px;text-align:center}
+header h1{font-size:clamp(1.8rem,5vw,2.4rem);margin:16px 0 8px;font-weight:900}
+header p{color:var(--muted);max-width:56ch;margin:0 auto}
+main{max-width:900px;margin:0 auto;padding:0 20px 56px;display:grid;grid-template-columns:1fr 1fr;gap:20px}
+@media (max-width:760px){main{grid-template-columns:1fr}}
+.panel{background:#fff;border:1px solid var(--line);border-radius:14px;padding:18px}
+textarea{width:100%;min-height:360px;border:1px solid var(--line);border-radius:8px;padding:12px;font:13px/1.5 ui-monospace,monospace;resize:vertical}
+.actions{display:flex;gap:10px;margin-top:12px}
+button{border:0;border-radius:8px;padding:10px 16px;font-weight:700;cursor:pointer}
+.btn-primary{background:var(--blue);color:#fff}
+.btn-secondary{background:#eef0f4;color:var(--ink)}
+.score{display:flex;align-items:baseline;gap:8px;margin-bottom:14px}
+.score b{font-size:2.4rem}
+.score span{color:var(--muted)}
+.check{display:flex;gap:10px;padding:10px 0;border-bottom:1px solid var(--line);font-size:.9rem}
+.check:last-child{border-bottom:0}
+.check .icon{flex:0 0 auto;font-weight:900}
+.pass .icon{color:var(--green)}
+.fail .icon{color:var(--red)}
+.placeholder{color:var(--muted);font-size:.9rem}
+</style>
+</head>
+<body>
+
+<header>
+  <span class="badge">Portfolio demo</span>
+  <h1>Resume Analyzer</h1>
+  <p>Paste resume text and get instant feedback on formatting, clarity, and impact — no upload, no account, nothing leaves your browser.</p>
+</header>
+
+<main>
+  <div class="panel">
+    <textarea id="input" placeholder="Paste your resume text here…"></textarea>
+    <div class="actions">
+      <button class="btn-primary" id="analyzeBtn">Analyze</button>
+      <button class="btn-secondary" id="exampleBtn">Load example</button>
+    </div>
+  </div>
+  <div class="panel" id="results">
+    <p class="placeholder">Results will appear here after you click Analyze.</p>
+  </div>
+</main>
+
+<script>
+"use strict";
+const ACTION_VERBS = ["built","led","designed","managed","diagnosed","supported","analyzed","automated","developed","implemented","deployed","created","reduced","increased","improved","launched","optimized","coordinated","trained","resolved","maintained","engineered","delivered","migrated","architected","streamlined"];
+const WEAK_PHRASES = ["responsible for","duties included","worked on","helped with","in charge of","tasked with","assisted with"];
+
+function analyze(text){
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
+  const bullets = lines.filter(l => /^[•\-*·]/.test(l) || /^\t*[•\-*·]/.test(l));
+  const lower = text.toLowerCase();
+
+  const checks = [];
+
+  // length
+  if (words.length < 150) checks.push({ pass: false, text: `Resume is short (${words.length} words) — may look thin for the role. Aim for 300–600.` });
+  else if (words.length > 900) checks.push({ pass: false, text: `Resume is long (${words.length} words) — trim to what's most relevant, aim for under 700.` });
+  else checks.push({ pass: true, text: `Length looks reasonable (${words.length} words).` });
+
+  // contact info
+  const hasEmail = /[\w.+-]+@[\w-]+\.[\w.-]+/.test(text);
+  const hasLink = /(linkedin\.com|github\.com|https?:\/\/)/i.test(text);
+  checks.push({ pass: hasEmail, text: hasEmail ? "Email address found." : "No email address detected — add contact info at the top." });
+  checks.push({ pass: hasLink, text: hasLink ? "LinkedIn/GitHub/portfolio link found." : "No LinkedIn, GitHub, or portfolio link found — recruiters look for these." });
+
+  // sections
+  const hasExperience = /(experience|employment|work history)/i.test(text);
+  const hasEducation = /education/i.test(text);
+  const hasSkills = /skills/i.test(text);
+  checks.push({ pass: hasExperience, text: hasExperience ? "Experience section found." : "No clear \"Experience\" section header found." });
+  checks.push({ pass: hasEducation, text: hasEducation ? "Education section found." : "No clear \"Education\" section header found." });
+  checks.push({ pass: hasSkills, text: hasSkills ? "Skills section found." : "No clear \"Skills\" section header found." });
+
+  // bullets and action verbs
+  if (bullets.length > 0){
+    const startsStrong = bullets.filter(b => {
+      const firstWord = b.replace(/^[•\-*·\t\s]+/, "").split(/\s+/)[0]?.toLowerCase().replace(/[^a-z]/g, "");
+      return ACTION_VERBS.includes(firstWord);
+    });
+    const ratio = startsStrong.length / bullets.length;
+    checks.push({
+      pass: ratio >= 0.5,
+      text: ratio >= 0.5
+        ? `${startsStrong.length}/${bullets.length} bullets start with a strong action verb.`
+        : `Only ${startsStrong.length}/${bullets.length} bullets start with a strong action verb (e.g. Built, Led, Automated) — rewrite weaker ones.`
+    });
+  } else {
+    checks.push({ pass: false, text: "No bullet points detected — use • or - to list achievements, not paragraphs." });
+  }
+
+  // quantifiable metrics
+  const bulletsWithNumbers = bullets.filter(b => /\d/.test(b));
+  if (bullets.length > 0){
+    const ratio = bulletsWithNumbers.length / bullets.length;
+    checks.push({
+      pass: ratio >= 0.3,
+      text: ratio >= 0.3
+        ? `${bulletsWithNumbers.length}/${bullets.length} bullets include a number or metric.`
+        : `Only ${bulletsWithNumbers.length}/${bullets.length} bullets include a number — add metrics (%, $, time saved, count) to show impact.`
+    });
+  }
+
+  // weak phrases
+  const foundWeak = WEAK_PHRASES.filter(p => lower.includes(p));
+  checks.push({
+    pass: foundWeak.length === 0,
+    text: foundWeak.length === 0 ? "No weak filler phrases found." : `Weak phrases found: "${foundWeak.join('", "')}" — replace with a specific action verb.`
+  });
+
+  // first person
+  const firstPersonCount = (lower.match(/\b(i|my|me)\b/g) || []).length;
+  checks.push({
+    pass: firstPersonCount === 0,
+    text: firstPersonCount === 0 ? "No first-person pronouns — good, resumes should be written in implied first person without \"I\"." : `Found ${firstPersonCount} first-person pronoun(s) ("I", "my") — resumes typically drop these.`
+  });
+
+  const score = Math.round(100 * checks.filter(c => c.pass).length / checks.length);
+  return { score, checks };
+}
+
+console.assert(analyze("").checks.length > 0, "analyze should always return checks");
+console.assert(analyze("I am responsible for stuff").checks.some(c => !c.pass && /weak/i.test(c.text)), "should flag weak phrases");
+console.assert(analyze("• Built a tool that reduced costs by 20%").checks.some(c => c.text.includes("action verb")), "should evaluate action verbs");
+
+const resultsEl = document.getElementById("results");
+function render(text){
+  const { score, checks } = analyze(text);
+  const color = score >= 80 ? "var(--green)" : score >= 50 ? "#c48a1a" : "var(--red)";
+  resultsEl.innerHTML = `
+    <div class="score"><b style="color:${color}">${score}</b><span>/ 100</span></div>
+    ${checks.map(c => `<div class="check ${c.pass ? "pass" : "fail"}"><span class="icon">${c.pass ? "✓" : "✕"}</span><span>${c.text}</span></div>`).join("")}
+  `;
+}
+
+document.getElementById("analyzeBtn").addEventListener("click", ()=>{
+  const text = document.getElementById("input").value;
+  if (!text.trim()){
+    resultsEl.innerHTML = '<p class="placeholder">Paste some resume text first.</p>';
+    return;
+  }
+  render(text);
+});
+
+const EXAMPLE = `SANTIAGO GONCALVES
+Junior AI & Automation Technologist | Electrical & Automatic Installations Technician (CFGM)
+santiagogoncalves07@gmail.com · linkedin.com/in/example · github.com/Santi-EP
+
+Profile
+Recently qualified Electrical & Automatic Installations technician (8/10 average) building a career in AI. Certified in machine learning and generative AI fundamentals (AWS), with hands-on experience shipping real, production web projects using AI-assisted development tools.
+
+Experience
+MEGASUR Tenerife 2006 SL — Electrical Technician Intern
+• Supported residential and commercial electrical installations: wiring, conduit runs, panel assembly, protections (breakers, RCDs, contactors) and basic commissioning
+• Diagnosed faults with multimeter under supervision; preventive maintenance, schematics reading and as-built documentation
+• Worked to OSHA-grade safety standards (PPE, LOTO basics) alongside qualified electricians
+
+Projects
+VALS — Car dealership website (Next.js, Vercel)
+• Built and deployed a production website for a car dealership, including per-vehicle landing pages with QR codes for showroom use
+
+Education
+CIFP IES La Laboral de La Laguna — CFGM Electricity & Electronics, 2024-2026, average 8/10
+
+Skills
+Next.js, Git/GitHub, Vercel deployment, AI-assisted development, industrial automation`;
+
+document.getElementById("exampleBtn").addEventListener("click", ()=>{
+  document.getElementById("input").value = EXAMPLE;
+  render(EXAMPLE);
+});
+</script>
+</body>
+</html>
